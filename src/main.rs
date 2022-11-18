@@ -1,4 +1,4 @@
-#[subxt::subxt(runtime_metadata_path = "relay-chain.scale")]
+#[subxt::subxt(runtime_metadata_path = "rococo_metadata.scale")]
 pub mod relay_chain {}
 
 use relay_chain::runtime_types::xcm::{
@@ -14,11 +14,12 @@ use relay_chain::runtime_types::xcm::{
 };
 
 use color_eyre::eyre::{self, WrapErr};
-use sp_core::{crypto::Pair, sr25519};
 use structopt::StructOpt;
-use subxt::{ClientBuilder, Config, DefaultConfig, DefaultExtra, PairSigner};
+use subxt::{ClientBuilder, Config, DefaultConfig, PairSigner, PolkadotExtrinsicParams};
+use subxt::sp_core::{Pair, sr25519};
+use core::fmt::Write;
 
-type SignedExtra = DefaultExtra<DefaultConfig>;
+type SignedExtra = PolkadotExtrinsicParams<DefaultConfig>;
 
 /// CLI for submitting XCM messages.
 #[derive(Debug, StructOpt)]
@@ -56,7 +57,7 @@ pub(crate) struct ExtrinsicOpts {
     #[structopt(name = "suri", long, short)]
     suri: String,
     /// Password for the secret key
-    #[structopt(name = "password", long, short)]
+    #[structopt(name = "password", long)]
     password: Option<String>,
 }
 
@@ -65,6 +66,14 @@ impl ExtrinsicOpts {
         sr25519::Pair::from_string(&self.suri, self.password.as_ref().map(String::as_ref))
             .map_err(|_| eyre::eyre!("Secret string error"))
     }
+}
+
+pub fn vec_to_hex_string(v: &Vec<u8>) -> String {
+    let mut res = "0x".to_string();
+    for a in v.iter() {
+        write!(res, "{:02x}", a).expect("should create hex string");
+    }
+    res
 }
 
 #[tokio::main]
@@ -103,19 +112,29 @@ async fn main() -> color_eyre::Result<()> {
     }]));
     let fee_asset_item = 0;
 
-    let events = api
+    let signed_extrinsic = api
         .tx()
         .xcm_pallet()
         .teleport_assets(dest, beneficiary, assets, fee_asset_item)
-        .sign_and_submit_then_watch(&signer)
-        .await?
-        .wait_for_finalized_success()
-        .await
-        .context("Error submitting extrinsic")?;
+        .context("Error creating extrinsic")?
+        .create_signed(&signer, Default::default())
+        .await?;
+    println!("{:?}", vec_to_hex_string(&signed_extrinsic.encoded().to_vec()));
 
-    for event in events.as_slice() {
-        println!("{:?}", event)
-    }
+    // let events = api
+    //     .tx()
+    //     .xcm_pallet()
+    //     .teleport_assets(dest, beneficiary, assets, fee_asset_item)
+    //     .context("Error creating extrinsic")?
+    //     .sign_and_submit_then_watch_default(&signer)
+    //     .await?
+    //     .wait_for_finalized_success()
+    //     .await
+    //     .context("Error submitting extrinsic")?;
+
+    // for event in events.as_slice() {
+    //     println!("{:?}", event)
+    // }
 
     Ok(())
 }
